@@ -266,3 +266,184 @@ library(ggrepel)  # To add labels with rounded edges
 library(png)  # To add icons
 library(mapdata)  # To plot maps
 library(ggthemes)  # To make maps extra pretty
+
+# Download species occurrence records from the Global Biodiversity Information Facility
+# *** rgbif package and the occ_search() function ***
+# You can increase the limit to get more records - 5000 takes a couple of minutes
+deer.locations <- occ_search(scientificName = "Cervus elaphus", limit = 5000,
+                             hasCoordinate = TRUE, return = "data") %>%
+  # Simplify occurrence data frame
+  dplyr::select(key, name, decimalLongitude, 
+                decimalLatitude, year, 
+                individualCount, country)
+# Data formatting & manipulation ----
+
+# Filter out population data for chosen species - red deer
+deer.data <- LPD_long2 %>%
+  filter(species.name == "Cervus elaphus") %>%
+  dplyr::select(id, species.name, location.of.population, year, pop)
+
+# Filter out population estimates for chosen species - red deer
+deer.slopes <- forest.slopes %>%
+  filter(species.name == "Cervus elaphus")
+
+# Make an occurrence map and include the locations of the populations part of the Living Planet Database
+(deer.map.LPD <- ggplot(deer.locations, aes(x = decimalLongitude, y = decimalLatitude)) +
+    # Add map data
+    borders("world", colour = "gray80", fill = "gray80", size = 0.3) +
+    # Use custom map theme from ggthemes package
+    theme_map() +
+    # Add the points from the population change data
+    geom_point(alpha = 0.3, size = 2, colour = "aquamarine3") +
+    # Specify where the data come from when plotting from more than one data frame using data = ""
+    geom_point(data = deer.slopes, aes(x = decimal.longitude, y = decimal.latitude),
+               size = 2, colour = "darkgreen"))
+               
+##Customising map to make it more beautiful ----
+  
+  # Check site names
+print(deer.slopes$location.of.population)
+
+# Beautify site names
+deer.slopes$location.of.population <- recode(deer.slopes$location.of.population,
+                                             "Northern Yellowstone National Park" 
+                                             = "Yellowstone National Park")
+deer.slopes$location.of.population <- recode(deer.slopes$location.of.population,
+                                             "Mount Rainier National Park, USA" 
+                                             = "Mount Rainier National Park")
+deer.slopes$location.of.population <- recode(deer.slopes$location.of.population,
+                                             "Bow Valley - eastern zone, Banff National Park, Alberta" = 
+                                               "Banff National Park, Alberta")
+deer.slopes$location.of.population <- recode(deer.slopes$location.of.population,
+                                             "Bow Valley - western zone, Banff National Park, Alberta" = 
+                                               "Banff National Park, Alberta")
+deer.slopes$location.of.population <- recode(deer.slopes$location.of.population,
+                                             "Bow Valley - central zone, Banff National Park, Alberta" = 
+                                               "Banff National Park, Alberta")
+deer.slopes$location.of.population <- recode(deer.slopes$location.of.population,
+                                             "Study area within Bow Valley, Banff National Park, Alberta" = 
+                                               "Banff National Park, Alberta")
+deer.slopes$location.of.population <- recode(deer.slopes$location.of.population,
+                                             "Bow Valley watershed of Banff National Park, Alberta" = 
+                                               "Banff National Park, Alberta")               
+
+# Load packages for adding images
+packs <- c("png","grid")
+lapply(packs, require, character.only = TRUE)
+
+# Load red deer icon
+icon <- readPNG("reddeer.png")
+icon <- rasterGrob(icon, interpolate = TRUE)
+
+# Update map
+# Note - this takes a while depending on your computer
+(deer.map.final <- ggplot(deer.locations, aes(x = decimalLongitude, y = decimalLatitude)) +
+    # For more localized maps use "worldHires" instead of "world"
+    borders("world", colour = "gray80", fill = "gray80", size = 0.3) +
+    theme_map() +
+    geom_point(alpha = 0.3, size = 2, colour = "aquamarine3") +
+    # We are specifying the data frame for the labels - one site has three monitored populations
+    # but we only want to label it once so we are subsetting using data = deer.slopes[c(2, 4, 5, 9),]
+    # to get only the first rows number 2, 4, 5 and 9
+    geom_label_repel(data = deer.slopes[c(2, 4, 5, 9),], aes(x = decimal.longitude, y = decimal.latitude,
+                                                             label = location.of.population),
+                     box.padding = 1, size = 5, nudge_x = 1,
+                     # We are specifying the size of the labels and nudging the points so that they
+                     # don't hide data points, along the x axis we are nudging by one
+                     min.segment.length = 0, inherit.aes = FALSE) +
+    # We can recreate the shape of a dropped pin by overlaying a circle and a triangle
+    geom_point(data = deer.slopes, aes(x = decimal.longitude, y = decimal.latitude + 0.6),
+               size = 4, colour = "darkgreen") +
+    geom_point(data = deer.slopes, aes(x = decimal.longitude, y = decimal.latitude - 0.3),
+               size = 3, fill = "darkgreen", colour = "darkgreen", shape = 25) +
+    # Adding the icon using the coordinates on the x and y axis
+    annotation_custom(icon, xmin = -210, xmax = -100, ymin = -60 , ymax = -30) +
+    # Adding a title
+    labs(title = "a. Red Deer GBIF occurrences", size = 12))
+
+# Visualise the number of occurrence records through time ----
+# This plot is more impressive if you have downloaded more records
+# as GBIF downloads the most recent records first
+yearly.obs <- deer.locations %>% group_by(year) %>% tally() %>% ungroup() %>% filter(is.na(year) == FALSE)
+
+(occurrences <- ggplot(yearly.obs, aes(x = year, y = n)) +
+    geom_smooth(colour = "aquamarine3", method = 'loess', size = 1) +
+    labs(x = NULL, y = "Number of occurrences\n",
+         title = "b. GBIF occurrences\n", size = 12) +
+    # Use our customised theme, saves many lines of code!
+    theme_LPD() +
+    # if you want to change things about your theme, you need to include the changes after adding the theme
+    theme(plot.title = element_text(size = 12), axis.title.y = element_text(size = 10)))
+
+##Visualise population trends ----
+  # Visualising the population trends of four deer populations
+  
+  # Let's practice functional programming here
+  # *** Functional Programming ***
+  # Let's make a function to make the population trend plots
+  # First we need to decide what values the function needs to take
+  # x - The population data
+  # y - the slope value
+  # z - the location of the monitoring
+  # This function needs to take three arguments
+  
+# Let's make the ggplot function
+pop.graph <- function(x, y, z) {
+  # Make a ggplot graph with the 'x'
+  ggplot(x, aes(x = year, y = pop)) +
+    # Shape 21 chooses a point with a black outline filled with aquamarine
+    geom_point(shape = 21, fill = "aquamarine3", size = 2) +
+    # Adds a linear model fit, alpha controls the transparency of the confidence intervals
+    geom_smooth(method = "lm", colour = "aquamarine3", fill = "aquamarine3", alpha = 0.4) +
+    # Add the monitoring location 'y' into the plot
+    labs(x = "", y = "Individuals\n", title = paste("c. ", y, "\n"), size = 7) +
+    # Set the y limit to the maximum population for each 'x'
+    ylim(0, max(x$pop)) +
+    # Set the x limit to the range of years of data
+    xlim(1970, 2010) +
+    # Add the slope 'y' into the plot
+    annotate("text", x = 1972, y = 0,  hjust = 0, vjust = -2, label = paste("Slope =", z), size = 3) +
+    theme_LPD() +
+    theme(plot.title = element_text(size=12), axis.title.y = element_text(size=10))
+}
+# Find all unique ids for red deer populations
+unique(deer.slopes$id)
+
+# Create an object each of the unique populations
+# Deer population 1 - Northern Yellowstone National Park
+deer1 <- filter(deer.data, id == "6395")
+slope_deer1 <- round(deer.slopes$estimate[deer.slopes$id == "6395"],2)
+location_deer1 <- deer.slopes$location.of.population[deer.slopes$id == "6395"]
+yellowstone <- pop.graph(deer1, location_deer1, slope_deer1)
+
+# Deer population 2 - Mount Rainier National Park, USA
+deer2 <- filter(deer.data, id == "3425")
+slope_deer2 <- round(deer.slopes$estimate[deer.slopes$id == "3425"],2)
+location_deer2 <- deer.slopes$location.of.population[deer.slopes$id == "3425"]
+rainier <- pop.graph(deer2, location_deer2, slope_deer2)
+
+# Deer population 3 - Switzerland
+deer3 <- filter(deer.data, id == "11170")
+slope_deer3 <- round(deer.slopes$estimate[deer.slopes$id == "11170"],2)
+location_deer3 <- deer.slopes$location.of.population[deer.slopes$id == "11170"]
+switzerland <- pop.graph(deer3, location_deer3, slope_deer3)
+
+# Deer population 4 - Banff National Park, Alberta (there are more populations here)
+deer4 <- filter(deer.data, id == "4383")
+slope_deer4 <- round(deer.slopes$estimate[deer.slopes$id == "4383"],2)
+location_deer4 <- deer.slopes$location.of.population[deer.slopes$id == "4383"]
+banff <- pop.graph(deer4, location_deer4, slope_deer4)
+
+# Create panel of all graphs
+# Makes a panel of the map and occurrence plot and specifies the ratio
+# i.e., we want the map to be wider than the other plots
+# suppressWarnings() suppresses warnings in the ggplot call here
+row1 <- suppressWarnings(grid.arrange(deer.map.final, occurrences, ncol = 2, widths = c(1.96, 1.04)))
+# Makes a panel of the four population plots
+row2 <- grid.arrange(yellowstone, rainier, switzerland, banff, ncol = 4, widths = c(1, 1, 1, 1))
+
+# Makes a panel of all the population plots and sets the ratio
+# Stich all of your plots together
+deer.panel <- grid.arrange(row1, row2, nrow = 2, heights = c(1.2, 0.8))
+
+ggsave(deer.panel, filename = "deer_panel2.png", height = 10, width = 15)
