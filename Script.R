@@ -157,6 +157,9 @@ forest.slopes <- LPD.forest %>%
   # Remove any groupings you've greated in the pipe
   ungroup()
 
+
+####################################################################
+####################################################################
 # Visualising model outputs ----
 
 # Plotting slope estimates and standard errors for all populations and adding histograms along the margins
@@ -180,3 +183,86 @@ forest.slopes <- LPD.forest %>%
 
 # Save the plot
 ggsave(density.slopes, filename = "slopes_duration.png", height = 6, width = 6)
+
+
+####################################################################
+####################################################################
+####################################################################
+####################################################################
+# PART 2: Using pipes to make figures with large datasets ----
+
+# Make histograms of slope estimates for each taxa -----
+# Set up new folder for figures
+# Set path to relevant path on your computer/in your repository
+path1 <- "Taxa_Forest_LPD/"
+# Create new folder
+dir.create(path1)
+
+# First we will do this using dplyr and a pipe
+
+forest.slopes %>%
+  # Select the relevant data
+  dplyr::select(id, class, species.name, estimate) %>%
+  # Group by taxa
+  group_by(class) %>%
+  # Save all plots in new folder
+  do(ggsave(ggplot(., aes(x = estimate)) +
+              # Add histograms
+              geom_histogram(colour = "darkgreen", fill = "darkgreen", binwidth = 0.02) +
+              # Use custom theme
+              theme_LPD() +
+              # Add axis lables
+              xlab("Rate of population change (slopes)"),
+            # Set up file names to print to
+            filename = gsub("", "", paste0(path1, unique(as.character(.$class)),
+                                           ".pdf")), device = "pdf"))
+
+# Here we select the relevant data
+# Let's get rid of the other levels of 'class'
+forest.slopes$class <- as.character(forest.slopes$class)
+# Selecting the relevant data and splitting it into a list
+taxa.slopes <- forest.slopes %>%
+  dplyr::select(id, class, estimate) %>%
+  spread(class, estimate) %>%
+  dplyr::select(-id)
+
+taxa.mean <- purrr::map(taxa.slopes, ~mean(., na.rm = TRUE))
+# This plots the mean population change per taxa
+taxa.mean
+
+### Intro to the purrr package ----
+
+# First let's write a function to make the plots
+# *** Functional Programming ***
+# This function takes one argument x, the data vector that we want to make a histogram
+plot.hist <- function(x) {
+  ggplot() +
+    geom_histogram(aes(x), colour = "darkgreen", fill = "darkgreen", binwidth = 0.02) +
+    theme_LPD() +
+    xlab("Rate of population change (slopes)")
+}
+
+taxa.plots <- purrr::map(taxa.slopes, ~plot.hist(.))
+# We need to make a new folder to put these figures in
+path2 <- "Users\gebruiker\Documents\CC-Ghent\Taxa_Forest_LPD"
+dir.create(path2)
+
+# *** walk2() function in purrr from the tidyverse ***
+walk2(paste0(path2, names(taxa.slopes), ".pdf"), taxa.plots, ggsave)
+
+
+####################################################################
+####################################################################
+####################################################################
+####################################################################
+### PART 3: Downloading and mapping data from large datasets ----
+#### How to map distributions and monitoring locations for one or more taxa
+
+# Packages ----
+library(rgbif)  # To extract GBIF data
+# library(CoordinateCleaner)  # To clean coordinates if you want to explore that later
+library(gridExtra)  # To make pretty graphs
+library(ggrepel)  # To add labels with rounded edges
+library(png)  # To add icons
+library(mapdata)  # To plot maps
+library(ggthemes)  # To make maps extra pretty
